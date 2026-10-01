@@ -1,0 +1,640 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Ключник</title><style>
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #1d1d1f; }
+h1 { font-size: 34pt; margin: 120px 0 4px; letter-spacing: -0.5px; }
+h1 + h3 { font-size: 15pt; font-weight: 400; color: #555; margin-top: 0; }
+h2 { font-size: 19pt; page-break-before: always; border-bottom: 2px solid #1d1d1f; padding-bottom: 6px; margin-top: 0; }
+h3 { font-size: 13pt; margin: 20px 0 6px; }
+p { margin: 6px 0 8px; }
+ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+li { margin: 3px 0; }
+code { font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt; background: #f1f1f3; padding: 1px 4px; border-radius: 3px; }
+pre { font-family: Consolas, 'Courier New', monospace; font-size: 9pt; line-height: 1.4; background: #f6f6f8;
+      border: 1px solid #e2e2e6; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.key { border-left: 4px solid #b07d12; background: #fbf6ea; padding: 10px 14px; margin: 14px 0; border-radius: 0 6px 6px 0;
+       page-break-inside: avoid; }
+</style></head><body><h1>Ключник</h1>
+<h3>Курс по Telegram-ботам: от пустой папки до бота на сервере</h3>
+<p>Закрытый курс сообщества. Файл не пересылаем за пределы чата.</p>
+<p><strong>Содержание</strong></p>
+<ul><li>Урок 0. Правила игры</li><li>Урок 1. Скелет: первый бот за 15 минут</li><li>Урок 2. Кнопки: двери Ключника</li><li>Урок 3. Диалоги: страж у двери</li><li>Урок 4. Память: SQLite</li><li>Урок 5. Middleware и доступ хозяина</li><li>Урок 6. Бот 24/7: сервер и systemd</li><li>Урок 7. Финал: пропуск у Привратника</li></ul>
+<h2>Урок 0. Правила игры</h2>
+<p>За 7 уроков ты соберёшь своего Telegram-бота — маленький квест с дверями, стражем и памятью. В конце бот сам заработает тебе пропуск в чат выпускников.</p>
+<p><strong>Как это работает</strong></p>
+<ul><li>В каждом уроке с 1 по 6 спрятан ключ. Он появляется, только когда ты делаешь практику: бот что-то ответит, код что-то напечатает, сервер выдаст ошибку.</li><li>Записывай ключи в файл keys.txt по порядку и точно как их выдали: с тем же регистром, без пробелов и кавычек.</li><li>В финале твой бот посчитает пропуск из шести ключей, твоего Telegram ID и слова от Привратника — бота нашего сообщества. Ссылка на Привратника — в закреплённом посте.</li><li>Пропуск личный. Чужой тебе не подойдёт, твой не подойдёт другим. Один бот проводит через дверь одного человека.</li><li>Ключи в чате не выкладываем. Помогать друг другу с кодом — можно и нужно.</li></ul>
+<p><strong>Что нужно</strong></p>
+<ul><li>Python 3.10 или новее и любой редактор (подойдёт VS Code).</li><li>Базовый Python: переменные, функции, if. Классы и async объясним по ходу.</li><li>К уроку 6 — сервер на Linux. Хватит самого дешёвого VPS.</li></ul>
+<p>Стек курса: aiogram 3, SQLite, systemd. Вопросы — в комментариях.</p>
+<h2>Урок 1. Скелет: первый бот за 15 минут</h2>
+<p>Сегодня заводим бота, ставим aiogram и учим его отвечать. В конце — первый ключ.</p>
+<h3>Шаг 1. Бот у BotFather</h3>
+<ol><li>Открой @BotFather и отправь /newbot.</li><li>Придумай имя (любое) и username. Username должен заканчиваться на bot, например kluchnik_ivan_bot.</li><li>BotFather пришлёт токен вида <code>7395021846:AAH...</code>. Это пароль от бота.</li></ol>
+<p>Две вещи про токен:</p>
+<ul><li>Число до двоеточия — ID твоего бота. Запомни это, в финале пригодится.</li><li>Токен никому не показывай и не выкладывай в GitHub. Утёк — отправь BotFather /revoke и получи новый.</li></ul>
+<h3>Шаг 2. Проект</h3>
+<pre><code>mkdir kluchnik
+cd kluchnik
+python -m venv venv</code></pre>
+<p>Активируй окружение. Windows: <code>venv\Scripts\activate</code>. macOS и Linux: <code>source venv/bin/activate</code>. Затем:</p>
+<pre><code>pip install aiogram python-dotenv</code></pre>
+<p>Создай рядом с кодом файл <code>.env</code>:</p>
+<pre><code>BOT_TOKEN=сюда_твой_токен</code></pre>
+<p>Токен живёт в .env, а не в коде. Так он не уедет на GitHub вместе с кодом.</p>
+<h3>Шаг 3. Код</h3>
+<p>Файл <code>bot.py</code>:</p>
+<pre><code>import asyncio
+import logging
+import os
+
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import CommandObject, CommandStart
+from aiogram.types import Message
+from dotenv import load_dotenv
+
+load_dotenv()
+router = Router()
+
+
+@router.message(CommandStart(deep_link=True))
+async def start_with_word(message: Message, command: CommandObject):
+    await message.answer(command.args[::-1])
+
+
+@router.message(CommandStart())
+async def start(message: Message):
+    await message.answer(&quot;Ключник на посту. Двери пока заперты.&quot;)
+
+
+@router.message(F.text)
+async def echo(message: Message):
+    await message.answer(f&quot;Ты сказал: {message.text}&quot;)
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    bot = Bot(os.environ[&quot;BOT_TOKEN&quot;])
+    dp = Dispatcher()
+    dp.include_router(router)
+    await dp.start_polling(bot)
+
+
+if __name__ == &quot;__main__&quot;:
+    asyncio.run(main())</code></pre>
+<p>Запусти: <code>python bot.py</code>. В консоли появится <code>Start polling</code>. Напиши боту в Telegram — он ответит. Остановить бота: Ctrl+C.</p>
+<h3>Как это работает</h3>
+<ul><li>Бот сам раз за разом спрашивает Telegram «есть новое?». Это называется polling. Каждое событие — сообщение, нажатие кнопки — приходит как update.</li><li>Dispatcher принимает update и передаёт его роутерам. Router — коробка с хендлерами.</li><li>Хендлер — функция с декоратором. Декоратор говорит, на что она реагирует: <code>CommandStart()</code> — на /start, <code>F.text</code> — на любой текст.</li><li><code>async def</code> и <code>await</code> нужны, чтобы бот не замирал, пока ждёт ответа от Telegram. Перед каждым обращением к Telegram пишем await.</li><li>Хендлеры проверяются сверху вниз, сообщение забирает первый подходящий. Поэтому эхо, которое ловит любой текст, всегда стоит последним.</li></ul>
+<p>Почему /start с параметром стоит выше обычного /start: <code>CommandStart()</code> ловит и «/start», и «/start что-угодно». Поставь его первым — и до <code>deep_link=True</code> очередь не дойдёт.</p>
+<p>Ссылка вида <code>t.me/имя_бота?start=слово</code> открывает бота и отправляет ему «/start слово». Это deep link: так делают реферальные ссылки и рекламные метки. Параметр — до 64 символов: латиница, цифры, _ и -. Запись <code>command.args[::-1]</code> переворачивает строку задом наперёд.</p>
+<div class="key"><strong>Ключ 1.</strong> Открой ссылку <code>https://t.me/ИМЯ_ТВОЕГО_БОТА?start=7_atorov</code> (username бота без @) и нажми «Запустить». Ответ бота — ключ 1. Запиши его в keys.txt.</div>
+<p>Домашка по желанию: пусть эхо отвечает ещё и длиной сообщения.</p>
+<h2>Урок 2. Кнопки: двери Ключника</h2>
+<p>Сегодня команда /doors покажет коридор из трёх дверей. В каждую можно постучать или попробовать её открыть.</p>
+<h3>Два вида кнопок</h3>
+<ul><li>Reply-клавиатура заменяет обычную клавиатуру. Нажатие просто отправляет текст.</li><li>Inline-клавиатура висит под сообщением. Нажатие отправляет боту невидимый callback со строкой callback_data. Её мы и используем.</li></ul>
+<p>У callback_data есть предел — 64 байта. Кириллица занимает 2 байта на букву, поэтому туда пишем коротко и латиницей.</p>
+<h3>CallbackData: строки без ручного разбора</h3>
+<p>Можно склеивать строки руками («door_3_open»), а потом резать их split. aiogram делает это за нас: описываем класс, а он сам превращает его в строку и обратно.</p>
+<p>Добавь в импорты:</p>
+<pre><code>from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder</code></pre>
+<p>Под строкой <code>router = Router()</code>:</p>
+<pre><code>class Door(CallbackData, prefix=&quot;kd&quot;):
+    room: int
+    act: str
+
+
+def corridor():
+    kb = InlineKeyboardBuilder()
+    for room in (1, 2, 3):
+        kb.button(text=f&quot;Дверь {room}: постучать&quot;, callback_data=Door(room=room, act=&quot;knock&quot;))
+        kb.button(text=&quot;открыть&quot;, callback_data=Door(room=room, act=&quot;open&quot;))
+    kb.adjust(2)
+    return kb.as_markup()</code></pre>
+<p>Хендлеры — выше эха:</p>
+<pre><code>@router.message(Command(&quot;doors&quot;))
+async def doors(message: Message):
+    await message.answer(&quot;Коридор. Три двери.&quot;, reply_markup=corridor())
+
+
+@router.callback_query(Door.filter(F.act == &quot;knock&quot;))
+async def knock(callback: CallbackQuery, callback_data: Door):
+    await callback.answer(f&quot;За дверью {callback_data.room} тихо.&quot;)
+
+
+@router.callback_query(Door.filter(F.act == &quot;open&quot;))
+async def open_door(callback: CallbackQuery, callback_data: Door):
+    await callback.answer(&quot;Заперто.&quot;, show_alert=True)</code></pre>
+<h3>Как это работает</h3>
+<ul><li><code>kb.adjust(2)</code> раскладывает кнопки по две в ряд.</li><li><code>Door.filter(F.act == &quot;knock&quot;)</code> пропускает к хендлеру только кнопки «постучать». В <code>callback_data</code> хендлер получает уже собранный объект, и room в нём — число, а не строка.</li><li><code>callback.answer()</code> обязателен. Без него на кнопке будут крутиться часики. С текстом он показывает всплывающую подсказку, с <code>show_alert=True</code> — окно с кнопкой ОК.</li><li>Хендлер /doors обязан стоять выше эха. Иначе эхо ответит «Ты сказал: /doors». Правило курса: эхо — всегда последний хендлер в файле.</li></ul>
+<div class="key"><strong>Ключ 2.</strong> Открой второй терминал в папке проекта, активируй venv и выполни: <code>python -c &quot;from bot import Door; print(Door(room=12, act=&#x27;knock&#x27;).pack())&quot;</code>. Напечатанная строка — ключ 2.</div>
+<p>Бот при этом не запустится. Функция main() вызывается, только когда файл запускают напрямую, — для этого и нужна строчка <code>if __name__ == &quot;__main__&quot;</code>.</p>
+<p>Домашка по желанию: посчитай, сколько байт занимает самая длинная callback_data в твоём боте. Подсказка: <code>len(строка.encode())</code>.</p>
+<h2>Урок 3. Диалоги: страж у двери</h2>
+<p>Сегодня за дверью 3 встанет страж. Он спросит, кто ты, а потом потребует пароль. Три ошибки — и он прогонит тебя.</p>
+<h3>Зачем состояния</h3>
+<p>Бот получает сообщения по одному и сам не помнит, о чём шла речь. Пришло «Мирон» — это ответ стражу или просто текст? Состояние (FSM, машина состояний) — пометка «этот человек сейчас отвечает на такой-то вопрос».</p>
+<p>Добавь в импорты:</p>
+<pre><code>from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup</code></pre>
+<p>Рядом с классом Door:</p>
+<pre><code>class Guard(StatesGroup):
+    waiting_name = State()
+    waiting_word = State()</code></pre>
+<p>Что умеет <code>state</code> в хендлере:</p>
+<ul><li><code>await state.set_state(...)</code> — поставить пометку;</li><li><code>await state.update_data(...)</code> и <code>await state.get_data()</code> — хранить ответы по ходу диалога;</li><li><code>await state.clear()</code> — снять пометку и стереть данные.</li></ul>
+<p>Хендлер с фильтром <code>Guard.waiting_name</code> сработает только у того, кто стоит в этом состоянии.</p>
+<h3>Код</h3>
+<p>Замени хендлер open_door:</p>
+<pre><code>@router.callback_query(Door.filter(F.act == &quot;open&quot;))
+async def open_door(callback: CallbackQuery, callback_data: Door, state: FSMContext):
+    if callback_data.room != 3:
+        await callback.answer(&quot;Заперто.&quot;, show_alert=True)
+        return
+    await state.set_state(Guard.waiting_name)
+    await callback.message.edit_text(&quot;У двери 3 стоит страж.\n— Кто идёт?&quot;)
+    await callback.answer()</code></pre>
+<p>Новые хендлеры. /cancel ставь выше хендлеров стража, а всё вместе — выше эха:</p>
+<pre><code>@router.message(Command(&quot;cancel&quot;))
+async def cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(&quot;Ты отошёл от двери.&quot;)
+
+
+@router.message(Guard.waiting_name, F.text)
+async def guard_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text, tries=0)
+    await state.set_state(Guard.waiting_word)
+    print(await state.get_state())
+    await message.answer(f&quot;— {message.text}, назови слово.&quot;)
+
+
+@router.message(Guard.waiting_word, F.text)
+async def guard_word(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if message.text.strip().lower() == &quot;друг&quot;:
+        await state.clear()
+        await message.answer(f&quot;— Проходи, {data[&#x27;name&#x27;]}. Дверь 3 открыта.&quot;)
+        return
+    tries = data[&quot;tries&quot;] + 1
+    if tries &gt;= 3:
+        await state.clear()
+        await message.answer(&quot;— Три ошибки. Уходи. (/doors — начать заново)&quot;)
+        return
+    await state.update_data(tries=tries)
+    await message.answer(f&quot;— Не то слово. Осталось попыток: {3 - tries}.&quot;)</code></pre>
+<h3>Ловушки порядка</h3>
+<ul><li>В aiogram 3 хендлер без фильтра состояния срабатывает в любом состоянии. Стоит эху оказаться выше стража — и оно перехватит все ответы.</li><li>Если /cancel окажется ниже стража, текст «/cancel» уйдёт стражу как неверный пароль, и сбежать не получится.</li></ul>
+<p>Где живут состояния: по умолчанию в памяти процесса. Перезапустил бота — все стражи забыли, кто перед ними. Для курса это нормально. В больших ботах состояния хранят в Redis.</p>
+<div class="key"><strong>Ключ 3.</strong> Нажми «открыть» у двери 3, назови стражу своё имя и посмотри в консоль, где запущен бот. Строка, которую напечатал <code>print(await state.get_state())</code>, — ключ 3. После этого print можно удалить.</div>
+<p>Домашка по желанию: пусть /cancel отвечает «Ты и так ни у какой двери», если человек не был в состоянии. Подсказка: <code>await state.get_state()</code> вернёт None.</p>
+<h2>Урок 4. Память: SQLite</h2>
+<p>Сегодня бот начнёт запоминать каждый стук и по команде /stats скажет, в какую дверь ты стучишь чаще всего. Данные переживут перезапуск.</p>
+<p>SQLite — база данных в одном файле: сервер не нужен, модуль sqlite3 уже встроен в Python. Для бота берём aiosqlite — ту же SQLite, но с await. Так запрос к диску не замораживает бота для остальных.</p>
+<pre><code>pip install aiosqlite</code></pre>
+<p>Добавь <code>import aiosqlite</code> в импорты и под <code>router = Router()</code>:</p>
+<pre><code>DB = &quot;kluchnik.db&quot;
+
+
+async def init_db():
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            &quot;CREATE TABLE IF NOT EXISTS visits (&quot;
+            &quot;user_id INTEGER, room INTEGER, ts TEXT DEFAULT CURRENT_TIMESTAMP)&quot;
+        )
+        await db.commit()
+
+
+async def add_visit(user_id: int, room: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            &quot;INSERT INTO visits (user_id, room) VALUES (?, ?)&quot;, (user_id, room)
+        )
+        await db.commit()
+
+
+async def favorite_room(user_id: int):
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            &quot;SELECT room, COUNT(*) AS c FROM visits WHERE user_id = ? &quot;
+            &quot;GROUP BY room ORDER BY c DESC, room LIMIT 1&quot;,
+            (user_id,),
+        )
+        return await cur.fetchone()</code></pre>
+<p>Три правки в старом коде:</p>
+<ol><li>В main() перед <code>await dp.start_polling(bot)</code> добавь <code>await init_db()</code>.</li><li>В хендлер knock первой строкой добавь <code>await add_visit(callback.from_user.id, callback_data.room)</code>.</li><li>Новый хендлер выше эха:</li></ol>
+<pre><code>@router.message(Command(&quot;stats&quot;))
+async def stats(message: Message):
+    row = await favorite_room(message.from_user.id)
+    if row is None:
+        await message.answer(&quot;Ты ещё ни в одну дверь не стучал.&quot;)
+    else:
+        await message.answer(f&quot;Чаще всего ты стучишь в дверь {row[0]} ({row[1]} раз).&quot;)</code></pre>
+<h3>Как это работает</h3>
+<ul><li><code>?</code> в запросе — место для значения. Значения передаём отдельно, кортежем. Никогда не вставляй данные пользователя в SQL через f-строку: это SQL-инъекция.</li><li><code>(user_id,)</code> — кортеж из одного элемента. Запятая обязательна.</li><li><code>GROUP BY room</code> собирает строки с одной дверью в группу, <code>COUNT(*)</code> считает размер группы. <code>ORDER BY c DESC</code> ставит самую большую группу первой, а <code>room</code> во второй сортировке решает ничьи: побеждает меньший номер. <code>LIMIT 1</code> оставляет одну строку.</li><li><code>fetchone()</code> вернёт кортеж <code>(room, c)</code> или None, если данных нет.</li></ul>
+<div class="key"><strong>Ключ 4.</strong> Сначала попробуй предсказать ответ в уме. Потом создай файл key4.py с кодом ниже и запусти его. Напечатанная строка — ключ 4.</div>
+<pre><code>import sqlite3
+
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;CREATE TABLE visits (user_id INTEGER, room INTEGER)&quot;)
+db.executemany(
+    &quot;INSERT INTO visits VALUES (?, ?)&quot;,
+    [(1, 3), (1, 5), (1, 3), (2, 5), (1, 8), (2, 2), (1, 5), (2, 8)],
+)
+room, c = db.execute(
+    &quot;SELECT room, COUNT(*) AS c FROM visits &quot;
+    &quot;GROUP BY room ORDER BY c DESC, room LIMIT 1&quot;
+).fetchone()
+print(f&quot;{room}x{c}&quot;)</code></pre>
+<p><code>&quot;:memory:&quot;</code> — база в оперативной памяти. Она исчезает, как только скрипт закончится.</p>
+<p>Домашка по желанию: команда /top — три двери, в которые чаще всего стучат все игроки, с количеством стуков.</p>
+<h2>Урок 5. Middleware и доступ хозяина</h2>
+<p>Сегодня защищаем бота от флуда, узнаём свой ID и делаем команду, которая работает только для хозяина.</p>
+<h3>Что такое middleware</h3>
+<p>Middleware — код, который оборачивает хендлеры: делает что-то до них и после. Логирование, антифлуд, бан-лист, подключение к базе — всё это middleware. Так не приходится копировать одно и то же в каждый хендлер.</p>
+<p>В aiogram их два вида:</p>
+<ul><li>outer — срабатывает на каждое событие, ещё до проверки фильтров;</li><li>inner (просто middleware) — срабатывает, только если нашёлся хендлер, чьи фильтры подошли.</li></ul>
+<p>Middleware — это класс с методом <code>__call__(handler, event, data)</code>. Вызвал внутри <code>await handler(event, data)</code> — событие пошло дальше. Не вызвал — событие остановлено.</p>
+<h3>Антифлуд</h3>
+<p>Добавь <code>import time</code> в импорты, а <code>BaseMiddleware</code> — в строку <code>from aiogram import ...</code>. Под <code>router = Router()</code>:</p>
+<pre><code>class AntiFlood(BaseMiddleware):
+    def __init__(self, delay: float = 0.7):
+        self.delay = delay
+        self.last: dict[int, float] = {}
+
+    async def __call__(self, handler, event, data):
+        user = data.get(&quot;event_from_user&quot;)
+        if user:
+            now = time.monotonic()
+            if now - self.last.get(user.id, 0) &lt; self.delay:
+                return  # слишком часто: молча пропускаем
+            self.last[user.id] = now
+        return await handler(event, data)
+
+
+router.message.outer_middleware(AntiFlood())</code></pre>
+<p><code>event_from_user</code> aiogram сам кладёт в data — это автор события. <code>time.monotonic()</code> — часы, которые не скачут при переводе времени.</p>
+<h3>Свой ID и доступ хозяина</h3>
+<p>Хендлер выше эха:</p>
+<pre><code>@router.message(Command(&quot;id&quot;))
+async def my_id(message: Message):
+    await message.answer(f&quot;Твой ID: {message.from_user.id}&quot;)</code></pre>
+<p>Отправь боту /id и допиши число в .env:</p>
+<pre><code>OWNER_ID=123456789</code></pre>
+<p>В bot.py сразу после <code>load_dotenv()</code>:</p>
+<pre><code>OWNER_ID = int(os.environ[&quot;OWNER_ID&quot;])</code></pre>
+<p>Функция рядом с остальными функциями базы и хендлер выше эха:</p>
+<pre><code>async def totals():
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(&quot;SELECT COUNT(*), COUNT(DISTINCT user_id) FROM visits&quot;)
+        return await cur.fetchone()
+
+
+@router.message(Command(&quot;admin&quot;), F.from_user.id == OWNER_ID)
+async def admin(message: Message):
+    visits, users = await totals()
+    await message.answer(f&quot;Стуков: {visits}. Гостей: {users}.&quot;)</code></pre>
+<p>Два фильтра через запятую работают как «И». Чужой человек не пройдёт второй фильтр, и его /admin достанется эху. Попроси друга проверить.</p>
+<div class="key"><strong>Ключ 5.</strong> Middleware можно проверить без Telegram: aiogram умеет «скормить» диспетчеру поддельное сообщение. Создай файл mw_test.py с кодом ниже. До запуска предскажи, что он напечатает. Потом запусти. Напечатанное слово — ключ 5.</div>
+<pre><code>import asyncio
+from datetime import datetime
+
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
+from aiogram.types import Chat, Message, Update, User
+
+log = []
+
+
+class Mark(BaseMiddleware):
+    def __init__(self, before, after):
+        self.before, self.after = before, after
+
+    async def __call__(self, handler, event, data):
+        log.append(self.before)
+        result = await handler(event, data)
+        log.append(self.after)
+        return result
+
+
+router = Router()
+router.message.outer_middleware(Mark(&quot;g&quot;, &quot;e&quot;))
+router.message.outer_middleware(Mark(&quot;a&quot;, &quot;t&quot;))
+router.message.middleware(Mark(&quot;r&quot;, &quot;d&quot;))
+
+
+@router.message(F.text == &quot;тук&quot;)
+async def knock(message: Message):
+    log.append(&quot;o&quot;)
+
+
+def fake(text: str) -&gt; Update:
+    return Update(update_id=1, message=Message(
+        message_id=1, date=datetime.now(), text=text,
+        chat=Chat(id=1, type=&quot;private&quot;),
+        from_user=User(id=1, is_bot=False, first_name=&quot;Test&quot;),
+    ))
+
+
+async def main():
+    dp = Dispatcher()
+    dp.include_router(router)
+    bot = Bot(&quot;42:TEST&quot;)  # фейковый токен: в сеть мы не ходим
+    await dp.feed_update(bot, fake(&quot;привет&quot;))
+    print(&quot;&quot;.join(log))
+    await bot.session.close()
+
+
+asyncio.run(main())</code></pre>
+<p>После этого замени «привет» на «тук» и запусти ещё раз. Объясни себе, откуда взялись новые буквы и почему они встали именно в середину.</p>
+<p>Домашка по желанию: middleware, который пишет в консоль, кто и что прислал боту.</p>
+<h2>Урок 6. Бот 24/7: сервер и systemd</h2>
+<p>Сегодня переносим бота на сервер, чтобы он работал без твоего компьютера, и учимся читать его логи.</p>
+<h3>Подготовка проекта</h3>
+<p>Файл <code>.gitignore</code> в папке проекта:</p>
+<pre><code>venv/
+.env
+*.db
+__pycache__/</code></pre>
+<p>Список зависимостей: <code>pip freeze &gt; requirements.txt</code>. Залей код в приватный репозиторий на GitHub. Файл .env туда не попадёт — на сервере создашь его заново.</p>
+<h3>Сервер</h3>
+<p>Подойдёт самый дешёвый VPS с Ubuntu 24.04. Зайди на него по SSH и выполни:</p>
+<pre><code>sudo apt update
+sudo apt install -y python3-venv git
+git clone https://github.com/ТВОЙ_ЛОГИН/kluchnik.git ~/kluchnik
+cd ~/kluchnik
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+nano .env</code></pre>
+<p>Для приватного репозитория GitHub спросит логин и токен доступа (Personal access token). В .env впиши те же BOT_TOKEN и OWNER_ID, что дома. Проверь запуск руками: <code>venv/bin/python bot.py</code>, затем Ctrl+C.</p>
+<h3>systemd: бот как служба</h3>
+<p>Узнай своё имя пользователя (<code>whoami</code>) и путь к папке (<code>pwd</code>). Создай файл службы: <code>sudo nano /etc/systemd/system/kluchnik.service</code>.</p>
+<pre><code>[Unit]
+Description=Kluchnik bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ТВОЙ_ПОЛЬЗОВАТЕЛЬ
+WorkingDirectory=/home/ТВОЙ_ПОЛЬЗОВАТЕЛЬ/kluchnik
+ExecStart=/home/ТВОЙ_ПОЛЬЗОВАТЕЛЬ/kluchnik/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Если заходишь под root, путь будет /root/kluchnik, а пользователь — root. Запускаем:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now kluchnik
+sudo systemctl status kluchnik
+journalctl -u kluchnik -f</code></pre>
+<ul><li><code>Restart=always</code>: упал бот — systemd поднимет его через 5 секунд.</li><li><code>enable</code>: бот стартует сам после перезагрузки сервера.</li><li><code>journalctl -f</code> показывает живой лог. Выход — Ctrl+C.</li><li>Обновить код: <code>cd ~/kluchnik &amp;&amp; git pull &amp;&amp; sudo systemctl restart kluchnik</code>.</li></ul>
+<p>Polling или webhook? При webhook Telegram сам стучится на твой сервер по HTTPS. Для этого нужны домен и сертификат. Для бота такого размера polling проще и надёжнее.</p>
+<h3>Один токен — один запущенный бот</h3>
+<p>Telegram отдаёт обновления только одному процессу. Запустишь второй с тем же токеном — они начнут драться за обновления. Это самая частая беда: бот уже работает на сервере, а ты запускаешь его ещё и дома для отладки.</p>
+<div class="key"><strong>Ключ 6.</strong> Пока бот работает на сервере, запусти его же у себя на компьютере: <code>python bot.py</code>. Подожди 10–20 секунд и отправь боту пару сообщений. В одной из консолей (дома или на сервере в <code>journalctl -u kluchnik -f</code>) появится ошибка <code>Failed to fetch updates - TelegramConflictError: Telegram server says - ...</code>. Первое слово после «Telegram server says -», маленькими буквами, — ключ 6. Потом останови домашнего бота.</div>
+<p>Домашка по желанию: перезагрузи сервер (<code>sudo reboot</code>) и проверь, что бот поднялся сам.</p>
+<h2>Урок 7. Финал: пропуск у Привратника</h2>
+<p>Сегодня твой бот сам заработает тебе пропуск в чат выпускников.</p>
+<h3>Как проходит экзамен</h3>
+<ol><li>Пишешь Привратнику /gate. Он выдаёт одноразовое слово из 8 символов, оно живёт 15 минут.</li><li>Отправляешь своему боту <code>/proof СЛОВО</code>.</li><li>Бот считает код из шести ключей, твоего ID, ID бота и слова и отвечает: <code>PROOF слово КОД</code>.</li><li>Пересылаешь этот ответ Привратнику. Именно «Переслать», а не скопировать текст.</li><li>Привратник проверяет код и выдаёт одноразовую ссылку в чат выпускников.</li></ol>
+<p>Почему это не подделать:</p>
+<ul><li>Код зависит от твоего Telegram ID. Ответ чужого бота для тебя не сработает.</li><li>Привратник видит, от какого бота переслано сообщение, и сам знает его ID.</li><li>Один бот проводит через дверь только одного человека.</li><li>Слово одноразовое и быстро протухает.</li></ul>
+<h3>Код</h3>
+<p>Добавь <code>import hashlib</code> в импорты. После строки с OWNER_ID:</p>
+<pre><code>KEYS = [&quot;ключ1&quot;, &quot;ключ2&quot;, &quot;ключ3&quot;, &quot;ключ4&quot;, &quot;ключ5&quot;, &quot;ключ6&quot;]</code></pre>
+<p>Подставь свои ключи из keys.txt в порядке уроков. Регистр и знаки — точно как их выдали.</p>
+<p>Функцию — к остальным функциям, хендлер — выше эха:</p>
+<pre><code>def make_proof(user_id: int, bot_id: int, word: str) -&gt; str:
+    raw = &quot;|&quot;.join([*KEYS, str(user_id), str(bot_id), word])
+    return hashlib.sha256(raw.encode()).hexdigest()[:10].upper()
+
+
+@router.message(Command(&quot;proof&quot;), F.from_user.id == OWNER_ID)
+async def proof(message: Message, command: CommandObject, bot: Bot):
+    if not command.args:
+        await message.answer(&quot;Формат: /proof СЛОВО_ОТ_ПРИВРАТНИКА&quot;)
+        return
+    word = command.args.strip()
+    code = make_proof(message.from_user.id, bot.id, word)
+    await message.answer(f&quot;PROOF {word} {code}&quot;)</code></pre>
+<h3>Как это работает</h3>
+<ul><li><code>&quot;|&quot;.join(...)</code> склеивает ключи, твой ID, ID бота и слово через вертикальную черту.</li><li>sha256 — хеш-функция: из любой строки получается 64 символа. Поменяй на входе один символ — изменится весь хеш. Обратно хеш не разворачивается, поэтому по чужому коду ключи не узнать.</li><li><code>[:10].upper()</code> — первые 10 символов, заглавными буквами.</li><li><code>bot.id</code> — ID бота, то самое число из токена (урок 1).</li><li><code>F.from_user.id == OWNER_ID</code> — пропуск выдаётся только хозяину бота (урок 5).</li></ul>
+<p>Обнови бота на сервере (урок 6) и иди к Привратнику.</p>
+<h3>Если Привратник не пускает</h3>
+<ul><li>«Код не сходится» — проверь ключи: порядок, регистр, лишние пробелы и кавычки. Какой ключ неверный, Привратник не скажет.</li><li>«Слово протухло» — возьми новое: /gate.</li><li>«Это копия» — нужно переслать сообщение, а не копировать его текст.</li><li>«Этот бот уже провёл другого человека» — нужен свой бот.</li><li>Бот отвечает «Ты сказал: /proof ...» — хендлер /proof стоит ниже эха или в .env записан не твой OWNER_ID.</li></ul>
+<h3>Полный bot.py</h3>
+<p>Сверь с ним свой файл, если что-то не работает. Вместо «ключ1»…«ключ6» — твои ключи.</p>
+<pre><code>import asyncio
+import hashlib
+import logging
+import os
+import time
+
+import aiosqlite
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
+from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.filters.callback_data import CallbackData
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from dotenv import load_dotenv
+
+load_dotenv()
+OWNER_ID = int(os.environ[&quot;OWNER_ID&quot;])
+DB = &quot;kluchnik.db&quot;
+KEYS = [&quot;ключ1&quot;, &quot;ключ2&quot;, &quot;ключ3&quot;, &quot;ключ4&quot;, &quot;ключ5&quot;, &quot;ключ6&quot;]
+
+router = Router()
+
+
+# ---------- урок 4: память ----------
+async def init_db():
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            &quot;CREATE TABLE IF NOT EXISTS visits (&quot;
+            &quot;user_id INTEGER, room INTEGER, ts TEXT DEFAULT CURRENT_TIMESTAMP)&quot;
+        )
+        await db.commit()
+
+
+async def add_visit(user_id: int, room: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            &quot;INSERT INTO visits (user_id, room) VALUES (?, ?)&quot;, (user_id, room)
+        )
+        await db.commit()
+
+
+async def favorite_room(user_id: int):
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            &quot;SELECT room, COUNT(*) AS c FROM visits WHERE user_id = ? &quot;
+            &quot;GROUP BY room ORDER BY c DESC, room LIMIT 1&quot;,
+            (user_id,),
+        )
+        return await cur.fetchone()
+
+
+async def totals():
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(&quot;SELECT COUNT(*), COUNT(DISTINCT user_id) FROM visits&quot;)
+        return await cur.fetchone()
+
+
+# ---------- урок 2: двери ----------
+class Door(CallbackData, prefix=&quot;kd&quot;):
+    room: int
+    act: str
+
+
+def corridor():
+    kb = InlineKeyboardBuilder()
+    for room in (1, 2, 3):
+        kb.button(text=f&quot;Дверь {room}: постучать&quot;, callback_data=Door(room=room, act=&quot;knock&quot;))
+        kb.button(text=&quot;открыть&quot;, callback_data=Door(room=room, act=&quot;open&quot;))
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+# ---------- урок 3: страж ----------
+class Guard(StatesGroup):
+    waiting_name = State()
+    waiting_word = State()
+
+
+# ---------- урок 5: антифлуд ----------
+class AntiFlood(BaseMiddleware):
+    def __init__(self, delay: float = 0.7):
+        self.delay = delay
+        self.last: dict[int, float] = {}
+
+    async def __call__(self, handler, event, data):
+        user = data.get(&quot;event_from_user&quot;)
+        if user:
+            now = time.monotonic()
+            if now - self.last.get(user.id, 0) &lt; self.delay:
+                return  # слишком часто: молча пропускаем
+            self.last[user.id] = now
+        return await handler(event, data)
+
+
+router.message.outer_middleware(AntiFlood())
+
+
+# ---------- урок 7: пропуск ----------
+def make_proof(user_id: int, bot_id: int, word: str) -&gt; str:
+    raw = &quot;|&quot;.join([*KEYS, str(user_id), str(bot_id), word])
+    return hashlib.sha256(raw.encode()).hexdigest()[:10].upper()
+
+
+# ---------- хендлеры: порядок важен ----------
+@router.message(CommandStart(deep_link=True))
+async def start_with_word(message: Message, command: CommandObject):
+    await message.answer(command.args[::-1])
+
+
+@router.message(CommandStart())
+async def start(message: Message):
+    await message.answer(&quot;Ключник на посту. Двери пока заперты.&quot;)
+
+
+@router.message(Command(&quot;id&quot;))
+async def my_id(message: Message):
+    await message.answer(f&quot;Твой ID: {message.from_user.id}&quot;)
+
+
+@router.message(Command(&quot;cancel&quot;))
+async def cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(&quot;Ты отошёл от двери.&quot;)
+
+
+@router.message(Command(&quot;doors&quot;))
+async def doors(message: Message):
+    await message.answer(&quot;Коридор. Три двери.&quot;, reply_markup=corridor())
+
+
+@router.message(Command(&quot;stats&quot;))
+async def stats(message: Message):
+    row = await favorite_room(message.from_user.id)
+    if row is None:
+        await message.answer(&quot;Ты ещё ни в одну дверь не стучал.&quot;)
+    else:
+        await message.answer(f&quot;Чаще всего ты стучишь в дверь {row[0]} ({row[1]} раз).&quot;)
+
+
+@router.message(Command(&quot;admin&quot;), F.from_user.id == OWNER_ID)
+async def admin(message: Message):
+    visits, users = await totals()
+    await message.answer(f&quot;Стуков: {visits}. Гостей: {users}.&quot;)
+
+
+@router.message(Command(&quot;proof&quot;), F.from_user.id == OWNER_ID)
+async def proof(message: Message, command: CommandObject, bot: Bot):
+    if not command.args:
+        await message.answer(&quot;Формат: /proof СЛОВО_ОТ_ПРИВРАТНИКА&quot;)
+        return
+    word = command.args.strip()
+    code = make_proof(message.from_user.id, bot.id, word)
+    await message.answer(f&quot;PROOF {word} {code}&quot;)
+
+
+@router.callback_query(Door.filter(F.act == &quot;knock&quot;))
+async def knock(callback: CallbackQuery, callback_data: Door):
+    await add_visit(callback.from_user.id, callback_data.room)
+    await callback.answer(f&quot;За дверью {callback_data.room} тихо.&quot;)
+
+
+@router.callback_query(Door.filter(F.act == &quot;open&quot;))
+async def open_door(callback: CallbackQuery, callback_data: Door, state: FSMContext):
+    if callback_data.room != 3:
+        await callback.answer(&quot;Заперто.&quot;, show_alert=True)
+        return
+    await state.set_state(Guard.waiting_name)
+    await callback.message.edit_text(&quot;У двери 3 стоит страж.\n— Кто идёт?&quot;)
+    await callback.answer()
+
+
+@router.message(Guard.waiting_name, F.text)
+async def guard_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text, tries=0)
+    await state.set_state(Guard.waiting_word)
+    await message.answer(f&quot;— {message.text}, назови слово.&quot;)
+
+
+@router.message(Guard.waiting_word, F.text)
+async def guard_word(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if message.text.strip().lower() == &quot;друг&quot;:
+        await state.clear()
+        await message.answer(f&quot;— Проходи, {data[&#x27;name&#x27;]}. Дверь 3 открыта.&quot;)
+        return
+    tries = data[&quot;tries&quot;] + 1
+    if tries &gt;= 3:
+        await state.clear()
+        await message.answer(&quot;— Три ошибки. Уходи. (/doors — начать заново)&quot;)
+        return
+    await state.update_data(tries=tries)
+    await message.answer(f&quot;— Не то слово. Осталось попыток: {3 - tries}.&quot;)
+
+
+@router.message(F.text)
+async def echo(message: Message):
+    await message.answer(f&quot;Ты сказал: {message.text}&quot;)
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    await init_db()
+    bot = Bot(os.environ[&quot;BOT_TOKEN&quot;])
+    dp = Dispatcher()
+    dp.include_router(router)
+    await dp.start_polling(bot)
+
+
+if __name__ == &quot;__main__&quot;:
+    asyncio.run(main())</code></pre>
+<p>Ты прошёл весь путь: от токена у BotFather до бота, который сам живёт на сервере. Что изучать дальше: webhook, хранение состояний в Redis, платежи и мини-приложения. Документация aiogram: docs.aiogram.dev.</p></body></html>
